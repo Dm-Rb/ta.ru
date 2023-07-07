@@ -32,9 +32,10 @@ def get_link_category_spares(url):
     if html:
         soup = BeautifulSoup(html, 'html.parser')
         container = soup.find("div", {"id": "content"})
-        links_categories = container.find_all('a')
-        links_categories = [(i.text, i.get('href')) for i in links_categories]
-        return links_categories
+        if container:
+            links_categories = container.find_all('a')
+            links_categories = [(i.text, i.get('href')) for i in links_categories]
+            return links_categories
 
 
 def get_link_category(url):
@@ -42,9 +43,10 @@ def get_link_category(url):
     if html:
         soup = BeautifulSoup(html, 'html.parser')
         container = soup.find("div", class_='models')
-        links_categories = container.find_all('a')
-        links_categories = [(i.text, i.get('href')) for i in links_categories]
-        return links_categories
+        if container:
+            links_categories = container.find_all('a')
+            links_categories = [(i.text, i.get('href')) for i in links_categories]
+            return links_categories
 
 
 def get_product_links(url):
@@ -113,21 +115,64 @@ def parse_description(soup):
 
 def parse_image(soup):
     links = []
+    sources = []
 
-    pictures = soup.find('div', class_='product-short__image').findAll('picture')
-    for picture in pictures:
-        img = picture.find('img')
-        meta = img.find('meta')
+    sources = soup.find('div', class_='product-short__image').findAll('source')
+    for source in sources:
+        if source.get('srcset', False):
+                s = source['srcset']
+                if (s.endswith('.jpg') or s.endswith('.jpeg') or s.endswith('.png')) and (not s.endswith('placeholder.png')):
+                    print(source['srcset'])
+        elif source.get('data-srcset', False):
+                s = source['data-srcset']
+                if (s.endswith('.jpg') or s.endswith('.jpeg') or s.endswith('.png')) and (not s.endswith('placeholder.png')):
+                    print(source['data-srcset'])
 
-        if meta:
-            sting_tag = str(meta)  # стрингуем объект bs4
-            link_re = re.search(r'https\S+', sting_tag)
-            link = link_re.group(0)
-            link = link[:len(link) - 1]
-            links.append(link)
-        else:
-            link = img['src']
-            links.append(link)
+
+    # sources.extend([p.find_all('source') for p in pictures])
+    # for source in sources:
+    #     if source.get('srcset', False):
+    #         s = source['srcset']
+    #         if s.endswith('.jpg') or s.endswith('.jpeg') or s.endswith('.png'):
+    #             print(source['srcset'])
+
+    # sources = [p.find_all('source') for p in pictures]
+    # # отфильтровывает теги source без аттрибута 'data-srcset'
+    # sources_ = []
+    #
+    # for source in sources:
+    #     for source_ in source:
+    #         if source_.get('srcset', False):
+    #             if source_['srcset'].endswith('.jpg'):
+    #                 print(source_['srcset'])
+
+
+
+
+
+    # img_links = [l['data-srcset'] for l in sources if l.get('data-srcset', False) and l['data-srcset'].endswith('.jpg')]
+    # print(img_links)
+    # for picture in pictures:
+    #     sources = picture.find_all('source')
+    #     img_links = [l['data-srcset'] for l in sources if l.get('data-srcset', False) and l['data-srcset'].endswith('.jpg')]
+    #     print(img_links)
+        # for s in sources:
+        #     try:
+        #         print(s['data-srcset'])
+        #     except:
+        #         continue
+
+        # meta = img.find('meta')
+        #
+        # if meta:
+        #     sting_tag = str(meta)  # стрингуем объект bs4
+        #     link_re = re.search(r'https\S+', sting_tag)
+        #     link = link_re.group(0)
+        #     link = link[:len(link) - 1]
+        #     links.append(link)
+        # else:
+        #     link = img['src']
+        #     links.append(link)
 
     return links
 
@@ -143,11 +188,13 @@ def parse_page(url):
         content = {
             'title': container_header.find('h1', class_='product__head').text,
             'brand': [i.find('meta') for i in container_header.find_all('td') if "Бренд" in i.text][0]['content'],
-            'images': images,
             'params': [{"name": strip_custom(j.find_all('td')[0].text), "value": strip_custom(j.find_all('td')[1].text)} for j in [i for i in container_header.find('table', class_='attribute_table_off').find_all('tr')]]
             }
-        for key, value in parse_description(container_description).items():
-            content[key] = value
+        if images:
+            content['images'] = images
+        if container_description:
+            for key, value in parse_description(container_description).items():
+                content[key] = value
 
 
         return content
@@ -160,7 +207,8 @@ def main():
     categories = get_link_category_spares(HOST + '/zapchasti')
 
     for category in categories:
-
+        if not category:
+            continue
         link = category[1]
         spare = category[0]
         links_manufacturers = get_link_category(HOST + link)
@@ -168,18 +216,25 @@ def main():
 
 
         for elem_1 in links_manufacturers:
+
+            if not elem_1:
+                continue
             link = elem_1[1]
             manufacturer = elem_1[0]
             print("Марка авто: " + manufacturer)
-
             links_models = get_link_category(HOST + link)
             for elem_2 in links_models:
+
+                if not elem_2:
+                    continue
                 link = elem_2[1]
                 model = elem_2[0]
                 print('Модель авто: ' + model)
 
                 link_range = get_link_category(HOST + link)
                 for elem_3 in link_range:
+                    if not elem_3:
+                        continue
                     link = elem_3[1]
                     range_model = elem_3[0]
                     print(range_model)
@@ -187,25 +242,29 @@ def main():
                 print(f"Собрано {len(links)} ссылок. Парсинг...")
                 for link in links:
                     print(f"Парсинг: {HOST + link}")
+                    try:
+                        content_page = parse_page(HOST + link)
+                        content_page['group'] = spare
+                        content_page['applicab_model'] = [
+                            {
+                                "manufacturer": manufacturer,
+                                "name": model,
+                                "range": range_model
+                            }
+                        ]
+                        content_list.append(content_page)
+                    except Exception:
+                        continue
 
-                    content_page = parse_page(HOST + link)
-                    content_page['group'] = spare
-                    content_page['applicab_model'] = [
-                        {
-                            "manufacturer": manufacturer,
-                            "name": model,
-                            "range": range_model
-                        }
-                    ]
-                    content_list.append(content_page)
-        #### save
-        with open(f'{spare}.json', 'w', encoding='utf-8') as f:
-            f.write(json.dumps(content_list, ensure_ascii=False))
-        content_list = []
+
+    ####
+    with open('result.json', 'w', encoding='utf-8') as f:
+        f.write(json.dumps(content_list, ensure_ascii=False))
 
 
 if __name__ == '__main__':
     session = requests.Session()
     main()
+
 
 
